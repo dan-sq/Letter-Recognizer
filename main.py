@@ -4,13 +4,14 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
+from recognizer import Multistroke, recognize
 
-SCALE = 2000
+SCALE = 3000
 
 class T265GUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("T265 Letter Recognizer")
+        self.root.title("T265 Gesture Recognizer")
 
         self.canvas = tk.Canvas(root, width=800, height=600, bg="white")
         self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -23,6 +24,7 @@ class T265GUI:
         ttk.Button(controls, text="Clear drawing", command=self.clear).pack(side=tk.LEFT)
         ttk.Button(controls, text="Save drawing", command=self.save_drawing).pack(side=tk.LEFT)
         ttk.Button(controls, text="Load drawing", command=self.load_drawing).pack(side=tk.LEFT)
+        ttk.Button(controls, text="Recognize gesture", command=self.recognize_gesture).pack(side=tk.LEFT)
 
         self.camera_status = ttk.Label(controls, text="Starting camera.")
         self.camera_status.pack(side=tk.LEFT)
@@ -71,7 +73,7 @@ class T265GUI:
                 self.pose_queue.put(("pose", (x, y, z)))
 
         except Exception as e:
-            self.pose_queue.put(("status", f"Camera error: {e}"))
+            self.pose_queue.put(("status", f"Camera error: {e}."))
 
         finally:
             pipe.stop()
@@ -100,7 +102,7 @@ class T265GUI:
                     f.write(l + "\n")
 
     def load_drawing(self):
-        path = filedialog.askopenfilename(filetypes=[("Drawings", "*.drawing")])
+        path = filedialog.askopenfilename(initialdir="saved", filetypes=[("Drawings", "*.drawing")])
         if not path:
             return
 
@@ -122,14 +124,54 @@ class T265GUI:
                     py1 = canvas_height / 2 - dy1 * SCALE
                     px2 = canvas_width / 2 + dx2 * SCALE
                     py2 = canvas_height / 2 - dy2 * SCALE
-
-                    self.points.append((dx1, dy1))
-                    self.points.append((dx2, dy2))
                     
                     self.canvas.create_line(px1, py1, px2, py2, fill="Black", width=4)
 
                 self.lines.append(points)
-                
+
+    def read_drawing(self, path):
+        lines = []
+
+        with open(path, "r") as f:
+            for line in f:
+                points = []
+                for p in line.split():
+                    x, y = p.split(",")
+                    points.append((float(x), float(y)))
+
+                if points:
+                    lines.append(points)
+
+        return lines
+
+    def load_templates(self):
+        templates = []
+        paths = filedialog.askopenfilenames(initialdir="templates", filetypes=[("Drawings", "*.drawing")])
+
+        for path in paths:
+            lines = self.read_drawing(path)
+
+            filename = path.split("/")[-1]
+
+            templates.append(Multistroke(filename, lines))
+
+        return templates
+
+    def recognize_gesture(self):
+        if not self.lines:
+            self.camera_status.config(text="No gesture to recognize.")
+            return
+
+        templates = self.load_templates()
+        if not templates:
+            self.camera_status.config(text="Error loading templates")
+
+        name, score = recognize(self.lines, templates)
+
+        if name is None:
+            self.camera_status.config(text="No match.")
+        else:
+            self.camera_status.config(text=f"Result: {name}, Score: {score:.3f}")
 
     def clear(self):
         self.canvas.delete("all")
